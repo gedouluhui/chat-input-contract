@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv*/
+artifacts/
+*.log
+.env
+.env.*
+*.pem
+*.key
+*-snapshot.json
+*-manifest.json
+*-report.json
+*-report.html
+.superpowers/

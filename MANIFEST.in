@@ -1,0 +1,7 @@
+include LICENSE README.md README.zh-CN.md pyproject.toml
+recursive-include docs *.md *.html
+recursive-include tests *.py
+prune artifacts
+prune .venv-clean
+prune .github
+exclude *.log

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chat-input-contract"
+version = "0.1.0"
+description = "Offline evidence and CI contracts for chat template and tokenizer preprocessing"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "gedouluhui"}]
+keywords = ["tokenizer", "chat-template", "llm", "regression-testing", "mlops"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.optional-dependencies]
+capture = ["transformers==5.8.0", "tokenizers==0.22.2", "jinja2==3.1.6"]
+
+[project.scripts]
+chat-input-contract = "chat_input_contract.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
