@@ -24,4 +24,4 @@
 
 ## Limits unchanged
 
-This is not a model-quality evaluator, live-serving parity certificate, malicious-template sandbox, hard memory isolation tool or authenticated proof of capture. Multi-backend service integrations and real-user adoption remain unverified. The new CI matrix is a configuration until independently executed by the publishing workflow.
+This is not a model-quality evaluator, live-serving parity certificate, malicious-template sandbox, hard memory isolation tool or authenticated proof of capture. Multi-backend service integrations and real-user adoption remain unverified. The published tag CI matrix succeeded on Linux/Windows Python 3.11/3.12/3.13; that is execution evidence, not an independent whole-upgrade review.

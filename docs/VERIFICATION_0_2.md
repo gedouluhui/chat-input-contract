@@ -1,6 +1,6 @@
-# Verification — 0.2.0 local release candidate
+# Verification — published 0.2.0
 
-Observed on 2026-11-18, Windows / Python 3.12.3. This is local release-candidate evidence. The new remote matrix and independent whole-upgrade final review are not claimed complete.
+Observed on 2026-11-18, Windows / Python 3.12.3, with remote results read back on 2026-11-19. The 0.2.0 tag and assets are published. The independent whole-upgrade final review gap remains as described below.
 
 ## Executed checks
 
@@ -12,6 +12,7 @@ Observed on 2026-11-18, Windows / Python 3.12.3. This is local release-candidate
 | Real installed capture CLI | 9 scenarios matched expected return codes and artifacts | Executed outside the source and sdist trees, with PYTHONPATH removed by a Python subprocess launcher. All installed Python modules byte-match source. |
 | Real installed core CLI | Match/0 and drift/1 | Same external directory, no capture dependencies, explanatory report v2. |
 | Browser report | Desktop 1280px and emulated 390px | No horizontal overflow, three cases, six change windows, no external resources. Enter toggled the focused native case summary open→closed→open. |
+| Published tag CI | success | [Run 44412198343](https://github.com/gedouluhui/chat-input-contract/actions/runs/44412198343) on commit `0f08489`; main and `improve-v0.2` runs also succeeded. |
 
 The nine real installed CLI scenarios were original demo, live safe check, live broken check, legacy v1 compare, opt-in v2 explanation/content, baseline overwrite rejection, repeated-demo rejection, safe argument rejection and fresh capture. The golden baseline bytes remained unchanged. Negative return code 1 is expected for genuine drift; a runtime failure/2 is not counted as successful drift detection.
 
@@ -27,13 +28,13 @@ Known-bad controls replace selected guards only in in-memory module copies, requ
 
 Independent targeted reviewers reproduced and checked the fixes for stale protection paths from repeated manifest reads, a native panic escaping the exception boundary, unstable rendering being blamed on postprocessing, argument echoing and live-check alias handling. A reported version-field gap was corrected with explicit old/new producer acceptance and unknown-version rejection tests.
 
-The final whole-upgrade independent reviewer could not start: the service returned a daily-quota 403 with no tool execution. It supplies **no review result**. The owner completed the integrated tests, installed-CLI probes and visual review described above; the candidate is handed to the coordinator for final independent acceptance rather than labelled universally approved.
+The final whole-upgrade independent reviewer could not start: the service returned a daily-quota 403 with no tool execution. It supplies **no review result**. The owner completed the integrated tests, installed-CLI probes and visual review described above; 0.2.0 was published with this gap disclosed rather than labelled universally approved.
 
 Two test-launch attempts using a local PATH-provided `env` command returned success without running Python or creating test evidence. They were rejected as invalid measurements. Actual verification uses `subprocess.run` with an explicitly sanitized environment, requires an observed test count and `OK` in nonempty logs, and checks the artifact content. An exit code alone is insufficient.
 
 ## Reproduce
 
-In a fresh environment, install the exact candidate wheel with its capture extra, or install a reviewed source checkout:
+In a fresh environment, install the published 0.2.0 wheel with its capture extra, or install a reviewed source checkout:
 
 ```sh
 python -m pip install ".[capture]"
@@ -47,4 +48,4 @@ Expected final command exit: 1, with postprocessing evidence. Use fresh output p
 
 ## Unverified
 
-Actual execution of the new Linux/Windows Python 3.11/3.12/3.13 matrix awaits coordinated publication. No live vLLM/llama.cpp compatibility, slow/custom/multimodal tokenizer support, hard memory or OS privilege sandboxing, authenticated capture origin, model quality, physical-mobile/Safari/Firefox results, real users or star-growth claims are established.
+The published Linux/Windows Python 3.11/3.12/3.13 matrix succeeded for tag commit `0f08489`; see the run linked above. No live vLLM/llama.cpp compatibility, slow/custom/multimodal tokenizer support, hard memory or OS privilege sandboxing, authenticated capture origin, model quality, physical-mobile/Safari/Firefox results, real users or star-growth claims are established.

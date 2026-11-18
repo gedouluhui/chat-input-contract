@@ -2,7 +2,7 @@
 
 ## Scope and compatibility
 
-Upgrade the existing offline tool rather than creating a platform. The public 0.1.0 tag and artifacts are immutable. Work on improve-v0.2; publishing is coordinated separately after verification. Capture remains explicit local HF fast-tokenizer JSON with trusted text-only templates, no model, no remote code or downloads. Core-only compare remains dependency-free. Python >=3.11; tested capture versions remain Transformers 5.8.0, tokenizers 0.22.2, Jinja2 3.1.6.
+Upgrade the existing offline tool rather than creating a platform. The public 0.1.0 tag and artifacts are immutable. This work was published as 0.2.0 from commit `0f08489`; its tag CI matrix succeeded. Capture remains explicit local HF fast-tokenizer JSON with trusted text-only templates, no model, no remote code or downloads. Core-only compare remains dependency-free. Python >=3.11; tested capture versions remain Transformers 5.8.0, tokenizers 0.22.2, Jinja2 3.1.6.
 
 Snapshot schema stays v1 and accepts producers chat-input-contract/0.1.0 and chat-input-contract/0.2.0. Captures use the new producer. Legacy compare_snapshots and default compare CLI keep report v1, preserving its observational stage codes. Observations are not causal claims; a changed rendering can explain downstream token changes. Existing genuine v0.1.0 self-authored snapshots are used as compatibility controls.
 
@@ -41,6 +41,6 @@ Render v1 and v2; v2 groups cases in native details elements and adds human-read
 - Prefix/suffix/two-ended inserts, repeated tokens, middle edits, empty sequences, overflow alignment fallback, preview/window clipping, input immutability, text escaping and redaction get independent controls. Small deterministic random sequences use a reconstruction invariant rather than precomputed diff answers.
 - Test actual ByteLevel BPE and WordPiece local toy tokenizers, Unicode/whitespace/multi-turn/assistant prefill. No paid models or unlicensed corpora.
 - Any independently reproduced v0.1 defect gets a regression first, then minimal correction and documented compatibility impact.
-- CI validates core-only installs and supported Python versions on Linux/Windows, plus pinned capture dependencies. Configured matrix is not counted as executed until the coordinator publishes and actual runs succeed.
+- CI validates core-only installs and supported Python versions on Linux/Windows, plus pinned capture dependencies. The published 0.2.0 tag run `44412198343` executed and succeeded on the full matrix.
 - Verify new wheel in a fresh environment, source bytes vs installed files, sdist replay, HTML desktop/mobile, tests and named in-memory mutation controls. Use new logs/artifact directories, never overwrite 0.1 evidence.
 - Independent review and owner verification precede fixed-commit handoff. No 'world-leading', user adoption or star-growth claims without evidence.
