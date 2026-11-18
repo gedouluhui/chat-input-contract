@@ -48,7 +48,8 @@ def validate_options(options, code='INVALID_SNAPSHOT'):
 def validate_snapshot(snapshot: dict) -> None:
     exact_keys(snapshot, {'schema_version', 'producer', 'runtime', 'artifacts', 'options', 'cases'})
     require(type(snapshot['schema_version']) is int and snapshot['schema_version'] == 1)
-    require(snapshot['producer'] == 'chat-input-contract/0.1.0', 'Unknown snapshot producer version.')
+    require(snapshot['producer'] in ('chat-input-contract/0.1.0', 'chat-input-contract/0.2.0'),
+            'Unknown snapshot producer version.')
     exact_keys(snapshot['runtime'], {'transformers', 'tokenizers', 'jinja2'})
     require(all(text(v, nonempty=True) and len(v) <= 128 for v in snapshot['runtime'].values()))
     exact_keys(snapshot['artifacts'], {'tokenizer_sha256', 'template_sha256', 'vocabulary_sha256'})
@@ -132,7 +133,8 @@ def compare_snapshots(baseline: dict, candidate: dict, *, include_content: bool 
             if a['unprocessed_ids'] != b['unprocessed_ids']:
                 stages.append('TOKENIZATION_CHANGED')
             if a['input_ids'] != b['input_ids']:
-                if a['rendered_text'] == b['rendered_text'] and a['unprocessed_ids'] == b['unprocessed_ids']:
+                if (a['rendered_text'] == b['rendered_text'] and a['unprocessed_ids'] == b['unprocessed_ids']
+                        and all(c['direct_ids'] == c['unprocessed_ids'] for c in (a, b))):
                     stages.append('POSTPROCESSING_CHANGED')
                 else:
                     stages.append('TOKENS_CHANGED')

@@ -1,6 +1,8 @@
 # Verification record — 0.1.0
 
-Observed locally on 2026-11-18. This record describes executed checks, not universal compatibility or adoption.
+Observed locally on 2026-11-18 for the original 0.1.0 release. This record describes executed checks, not universal compatibility or adoption. Version 0.2 adds separate evidence; these historical results must not be treated as verification of newer code.
+
+Execution-scope clarification: the unittest suite includes CLI subprocess tests that explicitly select the inspected source tree. A run in an installed-package venv therefore combines package/API checks with source-selected CLI checks; it is not exclusively a wheel test. Byte identity and separate real installed CLI runs provide additional release evidence.
 
 ## Executed
 

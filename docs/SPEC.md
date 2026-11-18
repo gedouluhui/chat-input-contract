@@ -1,4 +1,6 @@
-# Chat Input Contract — v0.1 contract
+# Chat Input Contract — v1 data contract
+
+The original v1 fields below remain the compatibility contract. Version 0.2 accepts producer identifiers `chat-input-contract/0.1.0` and `chat-input-contract/0.2.0`, writes the latter, and adds an opt-in report v2 and live-check workflow. See [0.2 design and hardening](UPGRADE_0_2.md) for exact extensions and the correction that prevents attributing inconsistent routes to postprocessing. New captures reject observed route inconsistency; old snapshots remain readable.
 
 ## Purpose
 

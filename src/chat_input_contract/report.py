@@ -14,6 +14,7 @@ header{padding:28px 0 32px;border-bottom:2px solid var(--ink)}h1{font:600 clamp(
 .positions{font-size:14px;color:var(--muted)}.lengths{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}.lengths div{padding:12px 14px;background:#f6f8fb;border-radius:4px}.lengths small{display:block;color:var(--muted)}code,pre{font:13px/1.55 "Cascadia Code",Consolas,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8fb;padding:14px;border-radius:5px;max-height:400px;overflow:auto}summary{cursor:pointer;padding:10px 0;font-weight:600}summary:focus-visible{outline:3px solid #167899;outline-offset:3px}.content-columns{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-width:0}.content-columns>div{min-width:0}
 table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;background:#fff}th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}th{background:#e9eff6;color:var(--muted)}th:first-child{width:28%}.table-wrap{border:1px solid var(--line);border-radius:7px;overflow:hidden}.small{font-size:13px;color:var(--muted)}footer{margin-top:42px;padding-top:20px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
 @media(max-width:640px){main{padding:24px 16px 40px}.pipeline{grid-template-columns:1fr 1fr}.step{border-bottom:1px solid var(--line)}.step:nth-child(2){border-right:0}.case{padding:16px}.case-head{align-items:flex-start}.metrics{gap:14px}.content-columns{grid-template-columns:1fr}th,td{padding:9px 7px;font-size:11px}.lengths{gap:8px}.lengths div{padding:9px}}
+.case>summary{list-style:none;padding:0}.case>summary::-webkit-details-marker{display:none}.case>summary h3:before{content:'+';display:inline-block;width:20px;color:var(--muted)}.case[open]>summary h3:before{content:'−'}.interpretation{background:#edf4f9;padding:14px 16px;border-left:3px solid #577a98;border-radius:0 5px 5px 0;margin:18px 0}.interpretation p{font-size:14px;margin:7px 0}.window{padding:14px 16px;background:#f5f7fa;border:1px solid var(--line);border-radius:5px;margin:10px 0}.window h4{font-size:13px;margin:0 0 6px}.window pre{margin:4px 0;padding:8px;background:white}.remove{border-left:3px solid #a12c41}.insert{border-left:3px solid #12665f}mark{background:#fff0bd;color:var(--ink)}.window-label{font:11px Consolas,monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.alignment-note{font-size:12px;color:var(--muted)}
 @media print{body{background:white}main{padding:0}.case{break-inside:avoid}details{display:block}pre{max-height:none}}
 '''
 
@@ -31,6 +32,30 @@ def badge(status):
     return f'<span class="outcome {status}">{status.title()}</span>'
 
 
+def _change_html(change, title):
+    if change is None:
+        return ''
+    if not change['total_windows']:
+        return f'<p class="small">{e(title)}: no sequence change.</p>'
+    mode = ('Enclosing window — alignment budget exceeded; unchanged internal spans may be included.'
+            if change['alignment'] == 'enclosing' else
+            'Bounded alignment — repeated sequences may have another valid alignment.')
+    parts = [f'<h4>{e(title)} · {e(change["total_windows"])} change windows</h4>',
+             f'<p class="alignment-note">{mode} Zero-based, half-open ranges.</p>']
+    for window in change['windows']:
+        parts.append(f'<div class="window"><h4>Baseline [{e(window["baseline_start"])}, {e(window["baseline_end"])}) → Candidate [{e(window["candidate_start"])}, {e(window["candidate_end"])})</h4><p class="small">{e(window["removed_count"])} removed · {e(window["added_count"])} added</p>')
+        for side, style in (('baseline', 'remove'), ('candidate', 'insert')):
+            preview = window.get(side+'_preview')
+            if preview is not None:
+                parts.append(f'<div class="window-label">{side}</div><pre class="{style}">{e(json.dumps(preview["before"], ensure_ascii=False))} <mark>{e(json.dumps(preview["changed"], ensure_ascii=False))}</mark> {e(json.dumps(preview["after"], ensure_ascii=False))}</pre>')
+                if preview['omitted_items']:
+                    parts.append(f'<p class="alignment-note">{e(preview["omitted_items"])} items omitted from this changed-segment preview.</p>')
+        parts.append('</div>')
+    if change['omitted_windows']:
+        parts.append(f'<p class="alignment-note">{e(change["omitted_windows"])} intermediate windows omitted. First two and last are shown.</p>')
+    return ''.join(parts)
+
+
 def render_html(report: dict) -> str:
     status = report['status']
     title, explanation = {
@@ -40,6 +65,8 @@ def render_html(report: dict) -> str:
     }.get(status, ('Comparison requires review.', 'Review the evidence before accepting a baseline.'))
     rows = report['case_results']
     codes = {stage for row in rows for stage in row['stages']}
+    enriched = report.get('schema_version') == 2
+    partial = any(row['status'] == 'incomparable' for row in rows)
     pipeline = []
     for num, name, related in (
         ('01', 'Messages', {'INPUT_CHANGED', 'MISSING_CASE', 'INTENT_CHANGED'}),
@@ -53,10 +80,16 @@ def render_html(report: dict) -> str:
             changed = bool(codes & {'VOCABULARY_CHANGED', 'TOKENIZATION_CHANGED'}) or any(
                 'TOKEN_SPELLING_CHANGED' in row['stages'] and row['first_token_difference'] is None
                 for row in rows)
-        pipeline.append(f'<div class="step{" changed" if changed else ""}"><small>{num} / INPUT PATH</small><strong>{name}</strong><span>{"Evidence to review" if changed else "No reported difference"}</span></div>')
+        if enriched:
+            stages = {'Messages': {'inputs'}, 'Template': {'rendering'},
+                      'Tokenizer': {'vocabulary', 'tokenization', 'token_spelling'},
+                      'Postprocess': {'postprocessing', 'consistency'}}[name]
+            changed = any(row['analysis']['earliest_stage'] in stages for row in rows)
+        label = 'Evidence to review' if changed else 'Not comparable for all cases' if partial else 'No reported difference'
+        pipeline.append(f'<div class="step{" changed" if changed else ""}"><small>{num} / INPUT PATH</small><strong>{name}</strong><span>{label}</span></div>')
     metrics = ''.join(f'<div><strong>{e(report["summary"][key])}</strong><span>{label}</span></div>'
                       for key, label in (('total', 'cases'), ('match', 'match'), ('drift', 'drift'), ('incomparable', 'incomparable')))
-    included = any('content' in row for row in rows)
+    included = report.get('content_included', False) or any('content' in row for row in rows)
     privacy = ('Content included — keep this report private.' if included else 'Content hidden — a smaller sharing surface.')
     privacy_note = ('Explicit content export is enabled. Rendered prompts, IDs and token spellings may reveal private input.' if included else
                     'Prompt text, token IDs and spellings are omitted. Case names and fingerprints remain visible; review them before sharing. Snapshots are sensitive even when this report is redacted.')
@@ -76,7 +109,17 @@ def render_html(report: dict) -> str:
                     text = f'<pre>{e(content["rendered_text"])}</pre><pre>{e(json.dumps(content["input_ids"]))}</pre><pre>{e(json.dumps(content["tokens"], ensure_ascii=False))}</pre>'
                 columns.append(f'<div><h3>{side.title()}</h3>{text}</div>')
             details = '<details><summary>Inspect explicitly included content</summary><div class="content-columns">' + ''.join(columns) + '</div></details>'
-        case_html.append(f'<article class="case"><div class="case-head"><h3>{e(row["id"])}</h3>{badge(row["status"])}</div><div class="stages">{stage_html}</div><p class="positions">First difference, zero-based: character <strong>{position(row["first_char_difference"])}</strong> · token <strong>{position(row["first_token_difference"])}</strong></p><div class="lengths">{sizes}</div>{details}</article>')
+        analysis = row.get('analysis')
+        if analysis:
+            interpretation = f'<div class="interpretation"><strong>First observed: {e(analysis["earliest_stage"] or "no difference")}</strong>' + ''.join(f'<p>{e(note)}</p>' for note in analysis['notes']) + '</div>'
+            details = interpretation + _change_html(analysis['token_change'], 'Tokens') + _change_html(analysis['character_change'], 'Characters')
+        body = f'<div class="stages">{stage_html}</div><p class="positions">First difference, zero-based: character <strong>{position(row["first_char_difference"])}</strong> · token <strong>{position(row["first_token_difference"])}</strong></p><div class="lengths">{sizes}</div>{details}'
+        heading = f'<h3>{e(row["id"])}</h3>{badge(row["status"])}'
+        if enriched:
+            opened = ' open' if row['status'] != 'match' else ''
+            case_html.append(f'<details class="case"{opened}><summary class="case-head">{heading}</summary>{body}</details>')
+        else:
+            case_html.append(f'<article class="case"><div class="case-head">{heading}</div>{body}</article>')
     changes = report['provenance_changes']
     provenance = ('<p class="small">Recorded artifacts, runtime and options are unchanged.</p>' if not changes else
                   '<div class="table-wrap"><table><thead><tr><th scope="col">Changed field</th><th scope="col">Baseline</th><th scope="col">Candidate</th></tr></thead><tbody>' +

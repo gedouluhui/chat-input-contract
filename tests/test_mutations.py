@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 import test_core as _core_tests
 import test_io as _io_tests
+import test_explain as _explain_tests
 
 
 class MutationControls(unittest.TestCase):
@@ -51,6 +52,20 @@ class MutationControls(unittest.TestCase):
     def test_privacy_guard_is_load_bearing(self):
         self.assert_caught('chat_input_contract.core', 'if include_content:',
             'if True:', _core_tests.CoreTests, 'test_equal_redacted_and_immutable')
+
+    def test_alignment_budget_cannot_silently_expand(self):
+        self.assert_caught('chat_input_contract.explain', 'ALIGNMENT_CELLS = 65_536',
+            'ALIGNMENT_CELLS = 66_000', _explain_tests.ExplanationTests,
+            'test_middle_product_boundary_both_sides')
+
+    def test_window_omission_remains_visible(self):
+        self.assert_caught('chat_input_contract.explain', "'omitted_windows': len(operations)-len(selected)",
+            "'omitted_windows': 0", _explain_tests.ExplanationTests,
+            'test_three_windows_keep_tail_and_report_omission')
+
+    def test_explanation_content_opt_in_guard(self):
+        self.assert_caught('chat_input_contract.explain', 'if include_content:',
+            'if True:', _explain_tests.ExplanationTests, 'test_sensitive_preview_is_opt_in_and_bounded')
 
     def test_duplicate_json_guard_is_load_bearing(self):
         self.assert_caught('chat_input_contract.io', 'if key in result:', 'if False:',

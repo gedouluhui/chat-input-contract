@@ -6,7 +6,25 @@ An offline capture → compare → evidence workflow for local chat templates an
 
 No model weights. No GPU. No API key. No runtime network requests. Comparing saved snapshots has **zero third-party dependencies**.
 
-[中文快速开始](README.zh-CN.md) · [Exact contract](docs/SPEC.md) · [Example HTML report](docs/example.html)
+[中文快速开始](README.zh-CN.md) · [v1 contract](docs/SPEC.md) · [0.2 changes](docs/UPGRADE_0_2.md) · [Example HTML report](docs/example.html)
+
+## Check a change without managing candidate files
+
+After reviewing and saving a baseline once:
+
+```sh
+chat-input-contract check manifest.json --baseline baseline.json
+```
+
+This captures the **current** local configuration in memory and checks every named case. Nothing is written unless you request a report; the baseline is never accepted or updated automatically.
+
+```sh
+chat-input-contract check manifest.json --baseline baseline.json --json check.json --html check.html
+```
+
+The terminal shows bounded case indices, the first observed stage and positions, not prompt text or token values. Explanatory reports split small changes into bounded windows—for example, the inserted BOS at the beginning and EOS at the end—rather than only saying “token 1 differs.” Large alignments fall back to an explicitly labelled enclosing range; this is not a claim of a unique/minimal edit script.
+
+`check` emits report **v2**. Existing `compare` and Python `compare_snapshots` retain report **v1** by default; `compare --explain` opts into v2. Both genuine 0.1.0 snapshots and 0.2.0 captures are readable. Full export is still opt-in; v2 exports only clipped change previews, not entire captured prompts.
 
 ## The bug you can reproduce in one command
 
@@ -92,7 +110,7 @@ No automatic fix or baseline blessing is performed. Intentional changes need rev
 
 JSON comparison reports and HTML hide prompt text, IDs and token spellings by default. They still contain case identifiers, lengths, fingerprints and configuration/version metadata; choose non-sensitive case names and review reports before sharing. SHA-256 fingerprints are not anonymization or authentication.
 
-`--include-content` explicitly exports the sensitive details into both comparison outputs. HTML is escaped, has no scripts/CDN/fonts/telemetry, and can be opened offline. Existing outputs are refused unless `--force` is supplied; inputs are protected even under force. Each output file is published atomically; a JSON+HTML pair is not a filesystem transaction, so an I/O failure can leave the already-completed first file.
+`--include-content` explicitly exports sensitive details: full content in legacy v1 comparisons, bounded changed-segment previews in v2 explanations. Preview and window omissions are labelled. The terminal remains content-free in both modes. HTML is escaped, has no scripts/CDN/fonts/telemetry, and can be opened offline. Existing outputs are refused unless `--force` is supplied; inputs are protected even under force. Each output file is published atomically; a JSON+HTML pair is not a filesystem transaction, so an I/O failure can leave the already-completed first file.
 
 ## Scope, honestly
 
@@ -100,7 +118,21 @@ JSON comparison reports and HTML hide prompt text, IDs and token spellings by de
 
 **Not supported:** AutoTokenizer model discovery, custom Python tokenizer classes, slow tokenizers, model inference, multimodal/tool-call inputs, arbitrary template kwargs, batching/padding/truncation policies, live vLLM/llama.cpp service parity, or model-quality evaluation. Loading a local tokenizer JSON is not equivalent to reproducing every option of its serving environment.
 
-Jinja templates are trusted local configuration. File/character/token budgets limit ordinary workflow size, but native tokenization/rendering may allocate before result checks. This is **not a hostile-code sandbox or a hard RAM/CPU limiter**. A snapshot is self-reported evidence, not a signed proof of execution.
+Jinja templates are trusted local configuration. A single frozen input payload binds preflight, exact input fingerprints and execution. Native dependencies execute in a subprocess; panic/exception text is not forwarded, and a 60-second wall-clock limit rejects a stalled capture. This is **not a hostile-code sandbox, privilege restriction or hard RAM/CPU limiter**. File/character/token/serialized-byte budgets limit ordinary workflow size, but allocation can precede checks.
+
+A direct-tokenization route that disagrees with its separately rendered counterpart is rejected as `CAPTURE_INCONSISTENT`, rather than blamed on postprocessing. This detects an observed inconsistency, not all possible nondeterminism: use stable templates without time/random-dependent output. A snapshot is self-reported evidence, not a signed proof of execution.
+
+## Put it in CI
+
+Keep a reviewed baseline and synthetic/non-sensitive cases in your project. Do **not** blindly regenerate the baseline on every run—doing that compares the change with itself. Install from a versioned release or a reviewed source checkout, then run:
+
+```sh
+chat-input-contract check contract/manifest.json --baseline contract/baseline.json --json check.json --html check.html
+```
+
+Let the process exit code fail the job. Archive reports only after reviewing the privacy policy for case names and fingerprints; do not upload raw snapshots automatically. Use a fresh report path, or explicitly allow replacement of disposable reports with `--force`. A baseline change should receive code review alongside the model-input change.
+
+This repository configures core-only Python 3.11/3.12/3.13 jobs for Linux/Windows and separate pinned capture-integration jobs. Their actual run history, not configuration alone, establishes remote verification.
 
 ## Python API
 
@@ -115,6 +147,10 @@ candidate = load_json("candidate.json")
 report = compare_snapshots(baseline, candidate)
 assert report["status"] == "match", report["summary"]
 html = render_html(report)
+
+# No-write live check with explanatory report v2:
+from chat_input_contract.check import check_manifest
+live_report = check_manifest("manifest.json", "baseline.json")
 ```
 
 `capture` is optional. `python -m pip install .` installs only the pure compare/report CLI.

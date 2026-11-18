@@ -1,16 +1,22 @@
 """Explicit local fast-tokenizer capture. Does not load model weights or remote code."""
 from __future__ import annotations
 
+import base64
+from dataclasses import dataclass
 import hashlib
 import importlib.metadata
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 from .core import (MAX_CASES, MAX_CHARS, MAX_SEQUENCE, MAX_TOTAL_IDS, exact_keys,
                    require, text, validate_options, validate_snapshot)
 from .errors import ContractError
 from .io import decode_json, json_bytes, load_json, read_bytes
 
 SPECIAL_KEYS = {'bos_token', 'eos_token', 'unk_token', 'pad_token', 'sep_token', 'cls_token', 'mask_token'}
+CAPTURE_TIMEOUT_SECONDS = 60
 
 
 def digest(raw):
@@ -61,12 +67,63 @@ def manifest_inputs(path):
     return manifest, (manifest_path, tokenizer, template)
 
 
-def capture_manifest(path: str | Path) -> dict:
-    manifest, (_, tokenizer_path, template_path) = manifest_inputs(path)
+@dataclass(frozen=True)
+class PreparedCapture:
+    payload: bytes
+    protected: tuple[Path, ...]
+
+
+def prepare_capture(path: str | Path) -> PreparedCapture:
+    manifest, protected = manifest_inputs(path)
+    _, tokenizer_path, template_path = protected
     raw = read_bytes(tokenizer_path, 64 * 1024 * 1024)
-    # Strict JSON check before the native tokenizer parser; no from_pretrained fallback.
     decode_json(raw)
     template_raw = read_bytes(template_path, 128 * 1024)
+    payload = json.dumps({'manifest': manifest,
+                          'tokenizer': base64.b64encode(raw).decode('ascii'),
+                          'template': base64.b64encode(template_raw).decode('ascii')},
+                         ensure_ascii=True, allow_nan=False).encode('utf-8')
+    require(len(payload) <= 128 * 1024 * 1024, 'Capture transport budget exceeded.', 'BUDGET_EXCEEDED')
+    return PreparedCapture(payload, protected)
+
+
+def capture_prepared(prepared: PreparedCapture) -> dict:
+    """Run native dependencies behind a private subprocess stderr boundary.
+
+    This limits run duration, not OS privileges or hard RAM consumption.
+    """
+    env = dict(os.environ, HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1',
+               PYTHONPATH=str(Path(__file__).resolve().parents[1]), PYTHONIOENCODING='utf-8')
+    try:
+        completed = subprocess.run([sys.executable, '-m', 'chat_input_contract._worker'],
+                                   input=prepared.payload, capture_output=True, env=env,
+                                   timeout=CAPTURE_TIMEOUT_SECONDS,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except subprocess.TimeoutExpired:
+        raise ContractError('CAPTURE_TIMEOUT', 'Capture exceeded its 60-second wall-clock limit.') from None
+    except OSError:
+        raise ContractError('CAPTURE_FAILED', 'Could not start the local capture worker.') from None
+    if completed.returncode != 0 or len(completed.stdout) > 64 * 1024 * 1024:
+        raise ContractError('CAPTURE_FAILED', 'Local capture worker failed; raw stderr is not exported.')
+    result = decode_json(completed.stdout)
+    if type(result) is dict and set(result) == {'error'}:
+        messages = {
+            'CAPTURE_DEPENDENCY': 'Install the tested capture extra.',
+            'CAPTURE_INCONSISTENT': 'Observed direct and rendered routes disagree; use a stable template.',
+            'BUDGET_EXCEEDED': 'Capture exceeded its declared size budget.',
+        }
+        code = result['error'] if result['error'] in messages else 'CAPTURE_FAILED'
+        raise ContractError(code, messages.get(code, 'Local tokenizer or template execution failed.'))
+    validate_snapshot(result)
+    return result
+
+
+def capture_manifest(path: str | Path) -> dict:
+    return capture_prepared(prepare_capture(path))
+
+
+def execute_capture(manifest: dict, raw: bytes, template_raw: bytes) -> dict:
+    """Internal worker implementation; callers should use capture_manifest."""
     try:
         template = template_raw.decode('utf-8')
     except UnicodeError:
@@ -82,7 +139,7 @@ def capture_manifest(path: str | Path) -> dict:
         tokenizer = PreTrainedTokenizerFast(tokenizer_object=backend, chat_template=template,
                                            **manifest['special_tokens'])
         result = {
-            'schema_version': 1, 'producer': 'chat-input-contract/0.1.0',
+            'schema_version': 1, 'producer': 'chat-input-contract/0.2.0',
             'runtime': {name: importlib.metadata.version(name) for name in ('transformers', 'tokenizers', 'jinja2')},
             'artifacts': {
                 'tokenizer_sha256': digest(raw), 'template_sha256': digest(template_raw),
@@ -104,6 +161,8 @@ def capture_manifest(path: str | Path) -> dict:
             for seq in (direct, unprocessed, postprocessed):
                 require(type(seq) is list and len(seq) <= MAX_SEQUENCE,
                         'Token sequence budget exceeded.', 'BUDGET_EXCEEDED')
+            require(direct == unprocessed,
+                    'Observed rendering and direct route disagree.', 'CAPTURE_INCONSISTENT')
             selected = direct if options['route'] == 'direct' else (
                 postprocessed if options['add_special_tokens'] else unprocessed)
             total += len(selected)

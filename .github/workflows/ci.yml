@@ -5,7 +5,33 @@ on:
 permissions:
   contents: read
 jobs:
-  test:
+  core:
+    name: Core only / ${{ matrix.os }} / Python ${{ matrix.python }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install .
+      - name: Confirm core does not require capture dependencies
+        run: python -c "import importlib.util; import chat_input_contract; assert importlib.util.find_spec('transformers') is None; assert importlib.util.find_spec('tokenizers') is None"
+      - name: Core, legacy compatibility, report and known-bad controls
+        shell: python
+        run: |
+          import unittest
+          patterns = ['test_core.py', 'test_io.py', 'test_explain.py', 'test_report.py', 'test_compatibility.py', 'test_mutations.py', 'test_packaging.py']
+          loader = unittest.TestLoader()
+          suite = unittest.TestSuite(loader.discover('tests', pattern=p) for p in patterns)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(not result.wasSuccessful())
+  capture:
+    name: Capture / ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -16,17 +42,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install package and tested capture dependencies
+      - name: Install tested capture dependencies
         run: python -m pip install ".[capture]" build
-      - name: Offline unit, integration and known-bad controls
+      - name: Offline integration, native-error boundary and real tokenizer matrix
         env:
           HF_HUB_OFFLINE: '1'
           TRANSFORMERS_OFFLINE: '1'
         run: python -m unittest discover -s tests -v
-      - name: Run original demo
-        env:
-          HF_HUB_OFFLINE: '1'
-          TRANSFORMERS_OFFLINE: '1'
-        run: chat-input-contract demo --out ci-demo
+      - name: Original demo and live baseline check
+        run: |
+          chat-input-contract demo --out ci-demo
+          chat-input-contract check ci-demo/safe-manifest.json --baseline ci-demo/direct-snapshot.json --json ci-check.json --html ci-check.html
       - name: Build distributable artifacts
         run: python -m build

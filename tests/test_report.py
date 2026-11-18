@@ -51,6 +51,45 @@ class ReportTests(unittest.TestCase):
         self.assertIn('<strong>Tokenizer</strong><span>No reported difference</span>', html)
         self.assertIn('<strong>Postprocess</strong><span>Evidence to review</span>', html)
 
+    def test_v2_first_observation_and_bounded_preview(self):
+        from chat_input_contract.explain import explain_snapshots
+        a, b = snapshot(), snapshot()
+        b['options'].update(route='render_then_encode', add_special_tokens=True)
+        c = b['cases'][0]; c['input_ids'] = c['postprocessed_ids'][:]
+        c['tokens'] = ['<bos>', '<bos>', 'hello', '<eos>', '<eos>']
+        html = self.render(explain_snapshots(a, b, include_content=True))
+        self.assertIn('First observed: postprocessing', html)
+        self.assertIn('2 change windows', html)
+        self.assertIn('Baseline [', html)
+        self.assertIn('Content included', html)
+        self.assertIn('<details class="case" open>', html)
+
+    def test_v2_incomparable_pipeline_is_not_false_green(self):
+        from chat_input_contract.explain import explain_snapshots
+        a, b = snapshot(), snapshot(); b['options']['add_generation_prompt'] = False
+        html = self.render(explain_snapshots(a, b))
+        self.assertIn('Not comparable', html)
+        self.assertNotIn('No reported difference', html)
+
+    def test_v2_match_case_collapses_and_redaction_holds(self):
+        from chat_input_contract.explain import explain_snapshots
+        s = snapshot(); html = self.render(explain_snapshots(s, s))
+        self.assertIn('<details class="case">', html)
+        self.assertNotIn('<details class="case" open>', html)
+        self.assertNotIn('&lt;bos&gt;', html)
+
+    def test_v2_clipped_content_is_labelled_and_escaped(self):
+        from chat_input_contract.explain import explain_snapshots
+        a, b = snapshot(), snapshot()
+        a['cases'][0]['rendered_text'] = '<img src=x>' * 200
+        b['cases'][0]['rendered_text'] = '<script>' * 200
+        html = self.render(explain_snapshots(a, b, include_content=True))
+        self.assertIn('Enclosing window', html)
+        self.assertIn('items omitted', html)
+        self.assertNotIn('<img src=x>', html)
+        self.assertNotIn('<script>', html)
+        self.assertIn('&lt;', html)
+
     def test_incomparable_explicit(self):
         a, b = snapshot(), snapshot(); b['options']['add_generation_prompt'] = False
         html = self.render(compare_snapshots(a, b))

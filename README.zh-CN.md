@@ -15,6 +15,21 @@ chat-input-contract demo --out demo-output
 
 实际演示结果：`safe=match, broken=drift, cases=3`。打开 `demo-output/broken-report.html` 查看证据。模板已添加 BOS/EOS，后续分词再次添加它们，会产生真实的 token 序列变化；修复路径关闭额外添加并重新执行，必须恢复一致。演示使用自制小词表和真实库调用，不需要模型权重、GPU、API key 或联网推理。
 
+## v0.2：一条命令检查当前配置
+
+首次人工审核并保存基线后，不再需要手动保存候选快照：
+
+```sh
+chat-input-contract check manifest.json --baseline baseline.json
+chat-input-contract check manifest.json --baseline baseline.json --json check.json --html check.html
+```
+
+第一条默认不写文件，第二条显式保存报告；均不会自动修改或接受新基线。报告会定位最早观测到的变化，区分首尾插入，并对大范围差异和截断明确标注。终端只显示用例序号、阶段与位置，不打印消息或token。
+
+`check`使用解释版报告v2；原`compare`默认仍为v1，加`--explain`才输出v2。真实0.1.0快照保持可读。v2的`--include-content`只导出有界差异预览，仍须按敏感数据处理。
+
+采集预检与执行绑定同一份输入字节，避免重复读取造成保护清单错位。原生分词器在子进程内运行，异常日志不向外泄露；60秒超时会拒绝本次采集。这不是恶意代码沙箱或硬内存隔离。观测到两条采集路线不一致时直接拒绝，不冒称后处理错误；稳定的一次观测不证明模板永远确定。
+
 ## 用自己的文件验收
 
 按 [英文 README](README.md#capture-your-configuration) 创建 JSON 清单，明确本地 tokenizer.json、chat.jinja、特殊 token、消息用例和调用选项。不要把示例的 token 名字当所有模型的默认值。

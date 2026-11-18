@@ -87,6 +87,8 @@ class CLITests(unittest.TestCase):
         bad = json.loads((out/'broken-report.json').read_text())
         self.assertEqual(safe['status'], 'match')
         self.assertEqual(bad['status'], 'drift')
+        self.assertEqual(bad['schema_version'], 2)
+        self.assertFalse(bad['content_included'])
         self.assertIn('POSTPROCESSING_CHANGED', bad['case_results'][0]['stages'])
         self.assertTrue((out/'broken-report.html').exists())
         p = self.run_cli('demo', '--out', out)

@@ -1,7 +1,7 @@
 """Generate original tiny fixtures and exercise real good, bad and repaired paths."""
 from pathlib import Path
 from .capture import capture_manifest
-from .core import compare_snapshots
+from .explain import explain_snapshots
 from .errors import ContractError
 from .io import write_bytes, write_json
 from .report import render_html
@@ -47,7 +47,7 @@ def run_demo(directory) -> dict:
         write_json(root / f'{name}-snapshot.json', snapshots[name])
     reports = {}
     for name in ('safe', 'broken'):
-        reports[name] = compare_snapshots(snapshots['direct'], snapshots[name])
+        reports[name] = explain_snapshots(snapshots['direct'], snapshots[name])
         write_json(root / f'{name}-report.json', reports[name])
         write_bytes(root / f'{name}-report.html', render_html(reports[name]).encode('utf-8'))
     if reports['safe']['status'] != 'match' or reports['broken']['status'] != 'drift':
