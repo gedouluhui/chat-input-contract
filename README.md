@@ -1,5 +1,7 @@
 # Chat Input Contract
 
+[![CI](https://github.com/gedouluhui/chat-input-contract/actions/workflows/ci.yml/badge.svg)](https://github.com/gedouluhui/chat-input-contract/actions/workflows/ci.yml)
+
 **Catch chat-preprocessing drift before you blame the model.**
 
 An offline capture → compare → evidence workflow for local chat templates and fast tokenizers. It tells you whether a change happened in the input, rendered prompt, tokenizer vocabulary, tokenization, or special-token postprocessing.
