@@ -56,3 +56,34 @@ python -m unittest discover -s tests -v
 [精确契约](docs/SPEC.md) · [验收记录](docs/VERIFICATION.md) · [依赖许可](docs/DEPENDENCIES.md)
 
 欢迎提交自制的最小复现与脱敏报告；不要提交私人对话、密钥或未获授权的数据。原始代码采用 MIT 许可。
+
+## 快速开始与支持状态
+
+### 问题
+通过分离渲染文本、分词、词表和特殊 token 后处理证据，捕获聊天预处理漂移。
+
+### 安装
+```sh
+python -m pip install ".[capture]"
+```
+
+### 成功命令
+```sh
+chat-input-contract demo --out demo-output
+```
+预期：真实安全路径匹配，损坏路径被识别为 drift；退出码 0。
+
+### 故意失败命令
+```sh
+chat-input-contract compare demo-output/direct-snapshot.json demo-output/broken-snapshot.json --json drift.json --html drift.html
+```
+预期：重复特殊 token 路径被报告为 drift；退出码 1。
+
+### 证据与覆盖边界
+证据使用原创本地 fixture 和真实 Transformers/tokenizers 调用、严格输入与覆盖检查、重复特殊 token 漂移及修复、输出保护、隐私行为、HTML 转义和内存变异对照。覆盖范围是声明的本地 fast-tokenizer/文本消息子集，不是模型推理或在线服务一致性。
+
+### 支持状态
+版本 0.2.0 支持 Python 3.11+。采集固定使用 Transformers 5.8.0、tokenizers 0.22.2 和 Jinja2 3.1.6；不隐式认证更新版本。已保存快照对比无第三方运行时依赖。维护为尽力而为，不提供 SLA。
+
+### 限制
+不支持 AutoTokenizer 发现、自定义/慢速 tokenizer、多模态/工具输入、任意模板参数、批处理/填充/截断、在线 vLLM/llama.cpp 一致性或模型质量评估。快照包含敏感的渲染提示词和可逆 token 信息。

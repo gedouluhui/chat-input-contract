@@ -176,3 +176,34 @@ HF already implements template rendering. llama.cpp already has strong tokenizer
 If you find a useful missing case, include a **minimal self-authored fixture**, the library versions, expected intent and a redacted report. Never post private prompts or credentials. Contributions should add a failing test before changing a contract rule.
 
 Original code: MIT. Third-party dependencies retain their own licenses; see [dependency notes](docs/DEPENDENCIES.md).
+
+## Quickstart and support
+
+### Problem
+Catch chat-preprocessing drift by separating rendered text, tokenization, vocabulary, and special-token postprocessing evidence.
+
+### Install
+```sh
+python -m pip install ".[capture]"
+```
+
+### Success
+```sh
+chat-input-contract demo --out demo-output
+```
+Expected: The real safe path matches and the broken path is identified as drift; exit 0.
+
+### Deliberate failure
+```sh
+chat-input-contract compare demo-output/direct-snapshot.json demo-output/broken-snapshot.json --json drift.json --html drift.html
+```
+Expected: The duplicate-special-token path is reported as drift and exits 1.
+
+### Evidence and coverage boundaries
+Evidence uses original local fixtures and real Transformers/tokenizers calls, strict input and coverage checks, duplicate-special-token drift and repair, output preservation, privacy behavior, HTML escaping, and in-memory mutation controls. Coverage is the declared local fast-tokenizer/text-message subset, not model inference or serving parity.
+
+### Support status
+Version 0.2.0 supports Python 3.11+. Capture is pinned to Transformers 5.8.0, tokenizers 0.22.2, and Jinja2 3.1.6; newer versions are not implicitly certified. Saved-snapshot comparison has no third-party runtime dependencies. Maintenance is best-effort with no SLA.
+
+### Limitations
+AutoTokenizer discovery, custom/slow tokenizers, multimodal/tool inputs, arbitrary template kwargs, batching/padding/truncation, live vLLM/llama.cpp parity, and model-quality evaluation are unsupported. Snapshots contain sensitive rendered prompts and reversible token information.
