@@ -8,8 +8,11 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
+import threading
+import time
 from .core import (MAX_CASES, MAX_CHARS, MAX_SEQUENCE, MAX_TOTAL_IDS, exact_keys,
                    require, text, validate_options, validate_snapshot)
 from .errors import ContractError
@@ -17,6 +20,144 @@ from .io import decode_json, json_bytes, load_json, read_bytes
 
 SPECIAL_KEYS = {'bos_token', 'eos_token', 'unk_token', 'pad_token', 'sep_token', 'cls_token', 'mask_token'}
 CAPTURE_TIMEOUT_SECONDS = 60
+CAPTURE_OUTPUT_BUDGET_BYTES = 64 * 1024 * 1024
+CAPTURE_MEMORY_LIMIT_BYTES = 1024 * 1024 * 1024
+CAPTURE_CHUNK_BYTES = 64 * 1024
+
+
+def _close_stream(stream):
+    try:
+        stream.close()
+    except OSError:
+        pass
+
+
+def _limit_worker_memory():
+    """Apply an address-space ceiling in the child, where the OS supports it."""
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    limits = [CAPTURE_MEMORY_LIMIT_BYTES]
+    limits.extend(limit for limit in (soft, hard) if limit != resource.RLIM_INFINITY)
+    resource.setrlimit(resource.RLIMIT_AS, (min(limits), hard))
+
+
+def _run_worker(worker, payload, *, env=None):
+    """Stream a worker's pipes under one byte budget, always killing/reaping it.
+
+    Only bounded stdout is retained. Stderr is drained and counted, never stored
+    or exported. Threads keep both pipes moving while stdin is written, so a
+    noisy worker cannot deadlock or bypass the budget through the other pipe.
+    """
+    command = [sys.executable, str(worker)] if isinstance(worker, (str, os.PathLike)) else list(worker)
+    stdout = bytearray()
+    lock = threading.Lock()
+    exceeded = threading.Event()
+    read_errors = []
+    total = 0
+    process = None
+    threads = []
+    need_group_cleanup = False
+    deadline = time.monotonic() + CAPTURE_TIMEOUT_SECONDS
+
+    def read_pipe(stream, keep):
+        nonlocal total
+        try:
+            while not exceeded.is_set():
+                chunk = stream.read(CAPTURE_CHUNK_BYTES)
+                if not chunk:
+                    break
+                with lock:
+                    if total + len(chunk) > CAPTURE_OUTPUT_BUDGET_BYTES:
+                        exceeded.set()
+                        break
+                    total += len(chunk)
+                    if keep:
+                        stdout.extend(chunk)
+        except OSError:
+            read_errors.append(True)
+
+    def write_input(stream):
+        view = memoryview(payload)
+        try:
+            while view and not exceeded.is_set():
+                written = stream.write(view)
+                if not written:
+                    break
+                view = view[written:]
+        except OSError:
+            # A worker may reject input or exit early; its status decides failure.
+            pass
+        finally:
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+    kwargs = dict(stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                  bufsize=0, env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    if os.name == 'posix':
+        kwargs['preexec_fn'] = _limit_worker_memory
+        kwargs['start_new_session'] = True
+    try:
+        process = subprocess.Popen(command, **kwargs)
+        threads = [threading.Thread(target=read_pipe, args=(process.stdout, True), daemon=True),
+                   threading.Thread(target=read_pipe, args=(process.stderr, False), daemon=True),
+                   threading.Thread(target=write_input, args=(process.stdin,), daemon=True)]
+        for thread in threads:
+            thread.start()
+        while process.poll() is None:
+            if exceeded.is_set():
+                need_group_cleanup = True
+                raise ContractError('CAPTURE_OUTPUT_BUDGET',
+                                    'Local capture worker exceeded its output budget; raw output is not exported.')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                need_group_cleanup = True
+                raise ContractError('CAPTURE_TIMEOUT', 'Capture exceeded its wall-clock limit.')
+            exceeded.wait(min(0.01, remaining))
+        try:
+            returncode = process.wait(timeout=max(0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            need_group_cleanup = True
+            raise ContractError('CAPTURE_TIMEOUT', 'Capture exceeded its wall-clock limit.') from None
+        if exceeded.is_set():
+            need_group_cleanup = True
+            raise ContractError('CAPTURE_OUTPUT_BUDGET',
+                                'Local capture worker exceeded its output budget; raw output is not exported.')
+        for thread in threads:
+            thread.join(timeout=max(0, deadline - time.monotonic()))
+        if any(thread.is_alive() for thread in threads):
+            need_group_cleanup = True
+            raise ContractError('CAPTURE_TIMEOUT',
+                                'Capture pipes remained open after the worker exited; inherited handles were not closed before the deadline.')
+        if read_errors:
+            raise ContractError('CAPTURE_FAILED', 'Could not read the local capture worker output.')
+        if returncode != 0:
+            raise ContractError('CAPTURE_FAILED', 'Local capture worker failed; raw stderr is not exported.')
+        return bytes(stdout)
+    except ContractError:
+        raise
+    except OSError:
+        raise ContractError('CAPTURE_FAILED', 'Could not start or clean up the local capture worker.') from None
+    finally:
+        if process is not None:
+            if need_group_cleanup and os.name == 'posix':
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+            process.wait()
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    threading.Thread(target=_close_stream, args=(stream,), daemon=True).start()
+        cleanup_deadline = time.monotonic() + 1
+        for thread in threads:
+            thread.join(timeout=max(0, cleanup_deadline - time.monotonic()))
 
 
 def digest(raw):
@@ -88,24 +229,15 @@ def prepare_capture(path: str | Path) -> PreparedCapture:
 
 
 def capture_prepared(prepared: PreparedCapture) -> dict:
-    """Run native dependencies behind a private subprocess stderr boundary.
+    """Run native dependencies behind a bounded subprocess output boundary.
 
-    This limits run duration, not OS privileges or hard RAM consumption.
+    This limits run duration, combined pipe output and (on POSIX) address space,
+    not OS privileges. It is not a hostile-code or hard RAM/CPU sandbox.
     """
     env = dict(os.environ, HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1',
                PYTHONPATH=str(Path(__file__).resolve().parents[1]), PYTHONIOENCODING='utf-8')
-    try:
-        completed = subprocess.run([sys.executable, '-m', 'chat_input_contract._worker'],
-                                   input=prepared.payload, capture_output=True, env=env,
-                                   timeout=CAPTURE_TIMEOUT_SECONDS,
-                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    except subprocess.TimeoutExpired:
-        raise ContractError('CAPTURE_TIMEOUT', 'Capture exceeded its 60-second wall-clock limit.') from None
-    except OSError:
-        raise ContractError('CAPTURE_FAILED', 'Could not start the local capture worker.') from None
-    if completed.returncode != 0 or len(completed.stdout) > 64 * 1024 * 1024:
-        raise ContractError('CAPTURE_FAILED', 'Local capture worker failed; raw stderr is not exported.')
-    result = decode_json(completed.stdout)
+    stdout = _run_worker([sys.executable, '-m', 'chat_input_contract._worker'], prepared.payload, env=env)
+    result = decode_json(stdout)
     if type(result) is dict and set(result) == {'error'}:
         messages = {
             'CAPTURE_DEPENDENCY': 'Install the tested capture extra.',

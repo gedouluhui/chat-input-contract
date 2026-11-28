@@ -47,9 +47,10 @@ def validate_options(options, code='INVALID_SNAPSHOT'):
 
 def validate_snapshot(snapshot: dict) -> None:
     exact_keys(snapshot, {'schema_version', 'producer', 'runtime', 'artifacts', 'options', 'cases'})
-    require(type(snapshot['schema_version']) is int and snapshot['schema_version'] == 1)
-    require(snapshot['producer'] in ('chat-input-contract/0.1.0', 'chat-input-contract/0.2.0'),
-            'Unknown snapshot producer version.')
+    # Check version field types before structure, but decide support only after
+    # the complete v1-shaped snapshot has passed validation.
+    require(type(snapshot['schema_version']) is int)
+    require(text(snapshot['producer'], nonempty=True) and len(snapshot['producer']) <= 128)
     exact_keys(snapshot['runtime'], {'transformers', 'tokenizers', 'jinja2'})
     require(all(text(v, nonempty=True) and len(v) <= 128 for v in snapshot['runtime'].values()))
     exact_keys(snapshot['artifacts'], {'tokenizer_sha256', 'template_sha256', 'vocabulary_sha256'})
@@ -86,6 +87,9 @@ def validate_snapshot(snapshot: dict) -> None:
         require(case['input_ids'] == case[source], 'Selected IDs disagree with the recorded route.')
         total += len(case['input_ids'])
         require(total <= MAX_TOTAL_IDS, 'Total token budget exceeded.', 'BUDGET_EXCEEDED')
+    require(snapshot['schema_version'] == 1 and
+            snapshot['producer'] in ('chat-input-contract/0.1.0', 'chat-input-contract/0.2.0'),
+            'Snapshot version is structurally valid but unsupported.', 'UNSUPPORTED_VERSION')
 
 
 def first_difference(a, b):
